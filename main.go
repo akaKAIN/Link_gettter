@@ -6,13 +6,14 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
-
-func main(){
+func main() {
 	if len(os.Args) == 1 {
 		fmt.Println("Введите ссылку для получения данных в строке вызова.")
 		return
@@ -21,7 +22,7 @@ func main(){
 	if incomingArgs == "" {
 		log.Fatal("Введите адресную строку для запроса")
 	}
-	if !strings.Contains(incomingArgs, "http"){
+	if !strings.Contains(incomingArgs, "http") {
 		incomingArgs = "https://" + incomingArgs
 	}
 	text, err := Response(incomingArgs)
@@ -31,7 +32,7 @@ func main(){
 	_ = GetAllUrls(text)
 }
 
-func Response(url string) (string, error){
+func Response(url string) (string, error) {
 	var text []byte
 	resp, err := http.Get(url)
 
@@ -39,7 +40,7 @@ func Response(url string) (string, error){
 		log.Println("Ошибка получения ответа")
 		return "", err
 	}
-	if resp.StatusCode != http.StatusOK{
+	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("Ошибка %s запроса к %s", resp.Status, url)
 	}
 
@@ -56,7 +57,9 @@ func Response(url string) (string, error){
 func GetAllUrls(s string) []string {
 	var urls, set []string
 	var setMap = make(map[string]int)
+	var c = make(chan string)
 
+	mediaFiles := []string{".jpg", ".png", ".ico", ".js", ".gif", ".webp", ".css"}
 
 	//Выбор всех совпадений по шаблону в тексте -> []string
 	pattern := `("http.+?")`
@@ -65,17 +68,53 @@ func GetAllUrls(s string) []string {
 		urls = re.FindAllString(s, -1)
 	}
 
+	checkFunc := func(str string) bool {
+		for _, ext := range mediaFiles {
+			if strings.Contains(filepath.Ext(str), ext) {
+				return true
+			}
+		}
+		return false
+	}
+
 	//Выбор уникальных значений -> map[string]int
 	for _, str := range urls {
-		setMap[str]++
+		if !checkFunc(str) {
+			setMap[str]++
+		}
 	}
-	for key := range setMap{
+
+	for key := range setMap {
 		set = append(set, key)
 	}
+	go SaveStr(c)
 	//Сортировка
 	sort.Strings(set)
 	for _, url := range set {
+		c <- url
 		fmt.Printf("%d совпадений: %s\n", setMap[url], url)
 	}
+	c <- "stop"
+	time.Sleep(time.Millisecond * 100)
 	return set
+}
+
+func SaveStr(c <-chan string) error {
+	fileName := fmt.Sprintf("%v.txt", time.Now())
+	file, err := os.Create(fileName)
+	if err != nil {
+		err = fmt.Errorf("Ошибка создания файла (%s): %s.\n", fileName, err)
+		return err
+	}
+	defer file.Close()
+	for {
+		if <-c == "stop" {
+			fmt.Println("Channel was", <- c)
+			break
+		}else {
+			file.WriteString(<-c + "\n")
+		}
+	}
+	fmt.Printf("Файл %q сохранен.\n", fileName)
+	return nil
 }
