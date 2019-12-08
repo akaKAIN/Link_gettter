@@ -8,9 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"save_package"
 	"sort"
 	"strings"
-	"time"
+	"sync"
 )
 
 func main() {
@@ -49,7 +50,9 @@ func Response(url string) (string, error) {
 		err = fmt.Errorf("error by %s reading %v", url, resp.Body)
 		return "", err
 	}
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		log.Println(err)
+	}
 
 	return string(text), err
 }
@@ -58,6 +61,7 @@ func GetAllUrls(s string) []string {
 	var urls, set []string
 	var setMap = make(map[string]int)
 	var c = make(chan string)
+	var wg sync.WaitGroup
 
 	mediaFiles := []string{".jpg", ".png", ".ico", ".js", ".gif", ".webp", ".css"}
 
@@ -87,7 +91,8 @@ func GetAllUrls(s string) []string {
 	for key := range setMap {
 		set = append(set, key)
 	}
-	go SaveStr(c)
+	go save_package.SaveStr(c, &wg)
+	wg.Add(1)
 	//Сортировка
 	sort.Strings(set)
 	for _, url := range set {
@@ -95,26 +100,7 @@ func GetAllUrls(s string) []string {
 		fmt.Printf("%d совпадений: %s\n", setMap[url], url)
 	}
 	c <- "stop"
-	time.Sleep(time.Millisecond * 100)
+	wg.Wait()
+	close(c)
 	return set
-}
-
-func SaveStr(c <-chan string) error {
-	fileName := fmt.Sprintf("%v.txt", time.Now())
-	file, err := os.Create(fileName)
-	if err != nil {
-		err = fmt.Errorf("Ошибка создания файла (%s): %s.\n", fileName, err)
-		return err
-	}
-	defer file.Close()
-	for {
-		if <-c == "stop" {
-			fmt.Println("Channel was", <- c)
-			break
-		}else {
-			file.WriteString(<-c + "\n")
-		}
-	}
-	fmt.Printf("Файл %q сохранен.\n", fileName)
-	return nil
 }
